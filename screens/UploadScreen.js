@@ -75,7 +75,7 @@ const UploadScreen = () => {
     });
 
     try {
-      const res = await axios.post('http://18.226.187.20/predict', formData, {
+      const res = await axios.post('http://18.227.89.214:5000/predict', formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -84,7 +84,7 @@ const UploadScreen = () => {
       setResponse(res.data); 
     } catch (error) {
       console.error(error);
-      alert('Error uploading image');
+      alert(error);
     }
   };
 
