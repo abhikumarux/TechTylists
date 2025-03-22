@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'; // Add useEffect
+import React, { useState, useEffect } from 'react'; 
 import { View, Text, Button, Image, ScrollView, StyleSheet, TextInput } from 'react-native';
 import axios from 'axios';
 import * as ImagePicker from 'expo-image-picker';
@@ -10,7 +10,7 @@ import { getFirestore } from 'firebase/firestore';
 const auth = getAuth(app);
 const db = getFirestore(app);
 const user = auth.currentUser;
-// const currentEmail = user.email
+
 
 const API_URL = 'http://18.227.89.214:5000'; 
 
@@ -20,23 +20,22 @@ const UserScreen = ({ userEmail }) => {
   const [userPhotos, setUserPhotos] = useState([]);
   const [loading, setLoading] = useState(false);
   const [image, setImage] = useState(null);
-  const [userData, setUserData] = useState(null); // Add state for user data
+  const [userData, setUserData] = useState(null); 
 
-  // Fetch user data when the component loads
   useEffect(() => {
     const fetchData = async () => {
       try {
         const data = await fetchUserData(userEmail);
-        setUserData(data); // Store user data in state
+        setUserData(data); 
       } catch (error) {
         console.error('Error fetching user data:', error);
       }
     };
 
     if (userEmail) {
-      fetchData(); // Call fetchData only if userEmail is available
+      fetchData(); 
     }
-  }, [userEmail]); // Run this effect when userEmail changes
+  }, [userEmail]); 
 
   const createUser = async () => {
     setLoading(true);
@@ -113,7 +112,7 @@ const UserScreen = ({ userEmail }) => {
   
     setLoading(true);
     try {
-      // Fetch user data and get awsPhotoKey
+      
       const userData = await fetchUserData(userEmail);
       if (!userData) {
         throw new Error('User data not found');
@@ -121,7 +120,7 @@ const UserScreen = ({ userEmail }) => {
   
       const awsPhotoKey = userData.awsPhotoKey || "";
   
-      // Prepare form data
+
       const formData = new FormData();
       formData.append('file', {
         uri: image,
@@ -130,7 +129,7 @@ const UserScreen = ({ userEmail }) => {
       });
       formData.append('user_id', String(awsPhotoKey));
   
-      // Upload photo
+
       const response = await axios.post(`${API_URL}/predict`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -149,7 +148,7 @@ const UserScreen = ({ userEmail }) => {
   const fetchUserPhotos = async () => {
     setLoading(true);
     try {
-      // Fetch user data and get awsPhotoKey
+
       const userData = await fetchUserData(userEmail);
       if (!userData) {
         throw new Error('User data not found');
@@ -157,7 +156,7 @@ const UserScreen = ({ userEmail }) => {
   
       const awsPhotoKey = userData.awsPhotoKey || "";
   
-      // Fetch user photos
+
       const response = await axios.get(`${API_URL}/get_user_photos?user_id=${awsPhotoKey}`);
       console.log('User photos:', response.data);
   
@@ -179,22 +178,22 @@ const UserScreen = ({ userEmail }) => {
     try {
       console.log('Fetching user data for email:', email);
   
-      // Ensure the email is valid
+      
       if (!email) {
         throw new Error('Email is null or undefined');
       }
   
-      // Fetch user data from Firestore
-      const userRef = doc(db, 'users', email); // Ensure this is the correct reference
+  
+      const userRef = doc(db, 'users', email); 
       const userDoc = await getDoc(userRef);
   
       if (userDoc.exists()) {
         const userData = userDoc.data();
         console.log('User data found:', userData);
-        return userData; // Return the user data
+        return userData;
       } else {
         console.log('No user data found for email:', email);
-        return null; // Return null if no data is found
+        return null;
       }
     } catch (error) {
       console.error('Error fetching user data:', error);

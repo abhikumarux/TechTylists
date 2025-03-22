@@ -24,11 +24,9 @@ const SignUp = ({ navigation }) => {
       
       const counterRef = doc(db, 'counters', 'awsPhotoKey');
 
-      // Increment the counter and get the new value
       const newValue = await runTransaction(db, async (transaction) => {
         const counterDoc = await transaction.get(counterRef);
   
-        // If the counter document doesn't exist, create it with an initial value
         if (!counterDoc.exists()) {
           transaction.set(counterRef, { lastValue: 0 });
         }
@@ -36,7 +34,6 @@ const SignUp = ({ navigation }) => {
         const lastValue = counterDoc.data()?.lastValue || 0;
         const newValue = lastValue + 1;
   
-        // Update the counter
         transaction.update(counterRef, { lastValue: newValue });
   
         return newValue;
