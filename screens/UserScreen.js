@@ -12,7 +12,7 @@ const db = getFirestore(app);
 const user = auth.currentUser;
 
 
-const API_URL = 'http://18.227.89.214:5000'; 
+const API_URL = 'http://18.225.195.136:5000'; 
 
 const UserScreen = ({ userEmail }) => {
   const [userId, setUserId] = useState('');
