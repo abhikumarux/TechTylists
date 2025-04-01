@@ -37,7 +37,7 @@ const MainApp = ({ userEmail }) => {
         },
       })}
     >
-      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Home" children={() => <HomeScreen userEmail={userEmail} />} />
       <Tab.Screen name="Photo" component={UploadScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen

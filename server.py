@@ -9,6 +9,7 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 import uuid  
 import numpy as np
+from rembg import remove
 
 app = Flask(__name__)
 
@@ -40,10 +41,11 @@ transform = transforms.Compose([
     transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
-def upload_image_to_s3(image, user_id, filename):
+def upload_image_to_s3(image, user_id, filename, category):
     """
     Uploads the image to S3 under the user's specific folder.
     """
+    print("IN S3")
     try:
        
         img_byte_arr = io.BytesIO()
@@ -52,8 +54,12 @@ def upload_image_to_s3(image, user_id, filename):
 
 
         object_name = f"{user_id}/{filename}"
-        s3.upload_fileobj(img_byte_arr, bucket_name, object_name, ExtraArgs={'ContentType': 'image/jpeg'})
-        print(f"Image uploaded to S3 at {object_name}")
+        extra_args = {'ContentType': 'image/jpeg'}
+        if category:
+            extra_args['Metadata'] = {'category': category}
+
+        s3.upload_fileobj(img_byte_arr, bucket_name, object_name, ExtraArgs={'ContentType': 'image/jpeg', 'Metadata': {'category': category}})
+        print(f"Image uploaded to S3 at {object_name} with category metadata: {category}")
 
         return object_name 
 
@@ -117,10 +123,10 @@ def register_user():
 
     except Exception as e:
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
+    
 
-
-@app.route("/predict", methods=["POST"])
-def predict():
+@app.route("/uploadImage", methods=["POST"])
+def uploadImage():
     try:
         if "file" not in request.files:
             return jsonify({"error": "No file provided"}), 400        
@@ -131,11 +137,71 @@ def predict():
         filename = file.filename
 
         try:
+    
+            image = Image.open(io.BytesIO(file.read()))
+            noBackImage = remove(image)
+            noBack = Image.open(io.BytesIO(noBackImage))
+            category = predictCategory2(noBack)
+        except Exception as e:
+            return jsonify({"error": f"Error processing image: {str(e)}"}), 400
+        image2 = image
+        pil_image = image2
+
+       
+        uploaded_image_path = upload_image_to_s3(pil_image, user_id, filename, category)
+        if uploaded_image_path:
+            print("Uploaded succesfully")
+            return jsonify({"category": category})
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An unexpected error occurred."}), 500
+
+def predictCategory2(image_input):
+    try:
+        if isinstance(image_input, Image.Image):
+            img_byte_arr = io.BytesIO()
+            image_input.save(img_byte_arr, format="JPEG")
+            image_bytes = img_byte_arr.getvalue()
+        elif isinstance(image_input, bytes):
+            image_bytes = image_input
+        else:
+            raise ValueError("Expected image in bytes or PIL format")
+
+        image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        image = transform(image).unsqueeze(0).to(device)
+
+
+        with torch.no_grad():
+            output = model(image)
+            _, predicted = torch.max(output, 1)
+
+        predicted_class = class_names[predicted.item()]
+        print(f"Predicted class: {predicted_class}")
+
+        return predicted_class
+
+    except Exception as e:
+        print(f"Error in predictCategory2: {str(e)}")
+        return None
+
+
+
+
+@app.route("/predict", methods=["POST"])
+def predictCategory():
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400        
+        
+        file = request.files["file"]
+
+        try:
            
             image = Image.open(io.BytesIO(file.read()))
         except Exception as e:
             return jsonify({"error": f"Error processing image: {str(e)}"}), 400
-        image2 = image
         image.convert("RGB")
         image = transform(image).unsqueeze(0).to(device)
 
@@ -147,24 +213,39 @@ def predict():
         predicted_class = class_names[predicted.item()]
         print(f"Predicted class: {predicted_class}")
 
-        pil_image = image2
-
-       
-        uploaded_image_path = upload_image_to_s3(pil_image, user_id, filename)
-        if uploaded_image_path:
-            return jsonify({"predicted_class": predicted_class, "image_uploaded_to": uploaded_image_path})
-
         return jsonify({"predicted_class": predicted_class})
 
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": "An unexpected error occurred."}), 500
 
+@app.route("/deleteImage", methods=["GET"])
+def deleteImage():
+    user_id = request.args.get("user_id")
+    image_name = request.args.get("image_name")
+    if not user_id or not image_name:
+        return jsonify({"error": "User ID and image name are required"}), 400
+    
+    try:
+
+        image_key = f"{image_name}"    
+        path = '/'.join(image_key.split('/')[3:])
+
+
+        response = s3.delete_object(Bucket=bucket_name, Key=path)
+
+        if response['ResponseMetadata']['HTTPStatusCode'] == 204:
+            return jsonify({"message": "Image deleted successfully"}), 200
+        else:
+            return jsonify({"error": "Failed to delete image"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
     
 @app.route("/get_user_photos", methods=["GET"])
 def get_user_photos():
     """
-    Fetch the list of photos uploaded by the user.
+    Fetch the list of photos uploaded by the user and categorize them by metadata.
     """
     try:
         user_id = request.args.get("user_id") 
@@ -183,17 +264,60 @@ def get_user_photos():
         if "Contents" not in response:
             return jsonify({"message": "No photos found for this user."}), 404
 
-       
-        photos = [content["Key"] for content in response["Contents"] if content["Key"] != f"{folder_name}placeholder.txt"]
+        categorized_photos = {}
 
-        photo_urls = [f"https://{bucket_name}.s3.amazonaws.com/{photo}" for photo in photos]
+        for content in response["Contents"]:
+            if content["Key"] == f"{folder_name}placeholder.txt":
+                continue 
 
-        return jsonify({"photos": photo_urls})
+            metadata_response = s3.head_object(Bucket=bucket_name, Key=content["Key"])
+            category = metadata_response.get("Metadata", {}).get("category", "uncategorized")  # Default to "uncategorized" if no metadata
+
+            photo_url = f"https://{bucket_name}.s3.amazonaws.com/{content['Key']}"
+
+            if category not in categorized_photos:
+                categorized_photos[category] = []
+
+            categorized_photos[category].append(photo_url)
+
+        return jsonify({"photos": categorized_photos})
 
     except Exception as e:
         print(f"Error: {e}")
         return jsonify({"error": "An unexpected error occurred."}), 500
+    
 
+
+@app.route("/changeCategory", methods=["GET"])
+def changeCategory():
+    user_id = request.args.get("user_id")
+    image_name = request.args.get("image_name")
+    new_category = request.args.get("new_category")
+
+    if not user_id or not image_name or not new_category:
+        return jsonify({"error": "User ID, image name, and new category are required"}), 400
+
+    try:
+        image_key = f"{image_name}"
+        path = '/'.join(image_key.split('/')[3:])
+        
+        response = s3.head_object(Bucket=bucket_name, Key=path)
+
+        new_metadata = response['Metadata']
+        new_metadata['category'] = new_category
+
+        s3.copy_object(
+            Bucket=bucket_name,
+            CopySource={'Bucket': bucket_name, 'Key': path},
+            Key=path,
+            Metadata=new_metadata,
+            MetadataDirective='REPLACE'
+        )
+
+        return jsonify({"message": "Category updated successfully"}), 200
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
