@@ -13,6 +13,7 @@ import { getAuth, onAuthStateChanged } from "firebase/auth";
 import LandingScreen from "./screens/LandingScreen/LandingScreen";
 import Login from "./screens/LoginScreen/login";
 import SignUp from "./screens/SignUpScreen/SignUp";
+import TutorialScreen from "./screens/TutorialScreen/TutorialScreen";
 import { app } from "./screens/FireBaseConfig";
 
 const auth = getAuth(app);
@@ -37,7 +38,10 @@ const MainApp = ({ userEmail }) => {
         },
       })}
     >
-      <Tab.Screen name="Home" children={() => <HomeScreen userEmail={userEmail} />} />
+      <Tab.Screen
+        name="Home"
+        children={() => <HomeScreen userEmail={userEmail} />}
+      />
       <Tab.Screen name="Photo" component={UploadScreen} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen
@@ -69,7 +73,19 @@ const App = () => {
   return (
     <NavigationContainer>
       {isLoggedIn ? (
-        <MainApp userEmail={userEmail} />
+        <Stack.Navigator>
+          <Stack.Screen
+            name="Tutorial"
+            component={TutorialScreen} // Show tutorial screen after login
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="Home"
+            component={MainApp}
+            initialParams={{ userEmail: userEmail }} // Pass user email to the home screen
+            options={{ headerShown: false }}
+          />
+        </Stack.Navigator>
       ) : (
         <Stack.Navigator>
           <Stack.Screen
