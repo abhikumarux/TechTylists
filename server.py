@@ -125,6 +125,33 @@ def register_user():
         return jsonify({"error": f"An unexpected error occurred: {str(e)}"}), 500
     
 
+
+def upload_post_image_to_s3(image, awsPhotoKey, PostID):
+    """
+    Uploads the image to S3 under 'posts/awsPhotoKey' based on the provided key.
+    """
+    try:
+        img_byte_arr = io.BytesIO()
+        image.save(img_byte_arr, format='JPEG')
+        img_byte_arr.seek(0)
+
+        s3.upload_fileobj(
+            img_byte_arr,
+            bucket_name,
+            f"posts/{awsPhotoKey}/all/{PostID}.jpg",
+            ExtraArgs={'ContentType': 'image/jpeg'}
+        )
+        print(f"Image uploaded to S3 at posts/{awsPhotoKey}")
+
+        return f"posts/{awsPhotoKey}"  # Return the S3 path of the uploaded image
+
+    except NoCredentialsError:
+        print("S3 credentials not available.")
+        return None
+    except Exception as e:
+        print(f"Error uploading image to S3: {str(e)}")
+        return None
+
 @app.route("/uploadImage", methods=["POST"])
 def uploadImage():
     try:
@@ -139,9 +166,9 @@ def uploadImage():
         try:
     
             image = Image.open(io.BytesIO(file.read()))
-            noBackImage = remove(image)
-            noBack = Image.open(io.BytesIO(noBackImage))
-            category = predictCategory2(noBack)
+            # noBackImage = remove(image)
+            # noBack = Image.open(io.BytesIO(noBackImage))
+            category = predictCategory2(image)
         except Exception as e:
             return jsonify({"error": f"Error processing image: {str(e)}"}), 400
         image2 = image
@@ -286,6 +313,64 @@ def get_user_photos():
         print(f"Error: {e}")
         return jsonify({"error": "An unexpected error occurred."}), 500
     
+
+@app.route("/createPost", methods=["POST"])
+def createPost():
+    try:
+        if "file" not in request.files:
+            return jsonify({"error": "No file provided"}), 400        
+        
+        file = request.files["file"]
+        awsPhotoKey = request.form.get("awsPhotoKey")
+        PostID = request.form.get("PostID")
+
+        if not awsPhotoKey:
+            return jsonify({"error": "awsPhotoKey is required"}), 400
+
+        filename = file.filename
+
+        try:
+            image = Image.open(io.BytesIO(file.read()))
+        except Exception as e:
+            return jsonify({"error": f"Error processing image: {str(e)}"}), 400
+
+        s3_path = upload_post_image_to_s3(image, awsPhotoKey, PostID)
+
+        if(s3_path):
+            return jsonify({"message": "Post created successfully"})
+        return jsonify({"error": "Error uploading image to S3"}), 500
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An unexpected error occurred."}), 500
+
+@app.route("/fetchAllPostsForUser", methods=["GET"])
+def fetchAllPostsForUser():
+    try:
+        awsPhotoKey = request.args.get("awsPhotoKey")
+        numPosts = request.args.get("postCount", default=10, type=int) 
+
+        if not awsPhotoKey:
+            return jsonify({"error": "awsPhotoKey is required"}), 400
+
+        folder_prefix = f"posts/{awsPhotoKey}/all/"
+        response = s3.list_objects_v2(Bucket=bucket_name, Prefix=folder_prefix)
+
+        if "Contents" not in response:
+            return jsonify({"message": "No posts found for this user."}), 404
+
+        post_urls = []
+
+        for content in response["Contents"]:
+            post_url = f"https://{bucket_name}.s3.amazonaws.com/{content['Key']}"
+            post_urls.append(post_url)
+
+        return jsonify({"posts": post_urls[:numPosts]}), 200
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return jsonify({"error": "An unexpected error occurred."}), 500
+
 
 
 @app.route("/changeCategory", methods=["GET"])
