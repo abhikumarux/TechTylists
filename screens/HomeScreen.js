@@ -21,11 +21,14 @@ const HomeScreen = ({ userEmail }) => {
   const [shorts, setShorts] = useState([]);
   const [skirts, setSkirts] = useState([]);
   const [hats, setHats] = useState([]);
+  const[hoodies, setHoodies] = useState([]);
   const [, set] = useState([]);
   const [uploadedPhotoPath, setUploadedPhotoPath] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [imagesToUse, setImagesToUse] = useState([]);
+
 
   useEffect(() => {
     if (user) {
@@ -56,6 +59,43 @@ const HomeScreen = ({ userEmail }) => {
 
     if (!result.canceled) {
         uploadPhoto(result.assets[0].uri);
+    }
+  };
+
+  const pickImageForBody = async () => {
+    const permissionResult = await ImagePicker.requestCameraPermissionsAsync();
+    if (permissionResult.granted === false) {
+      alert("Permission to access camera is required!");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      const updated = [...imagesToUse, result.assets[0].uri];
+      setImagesToUse(updated);
+      console.log("Uploaded Image Added:", updated);
+    }
+  };
+
+  const uploadImageForBody = async () => {
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      alert("Permission to access media library is required!");
+      return;
+    }
+  
+    const result = await ImagePicker.launchImageLibraryAsync({
+
+      quality: 1,
+    });
+  
+    if (!result.canceled) {
+      const updated = [...imagesToUse, result.assets[0].uri];
+      setImagesToUse(updated);
+      console.log("Uploaded Image Added:", updated);
     }
   };
 
@@ -111,6 +151,7 @@ const HomeScreen = ({ userEmail }) => {
       const shirtPhotos = categorizedPhotos.shirts || [];
       const pantPhotos = categorizedPhotos.pants || [];
       const hatPhotos = categorizedPhotos.hats || [];
+      const hoodiePhotos = categorizedPhotos.hoodies || [];
   
       console.log('Shirt Photos:', shirtPhotos);
       console.log('Pant Photos:', pantPhotos);
@@ -119,6 +160,7 @@ const HomeScreen = ({ userEmail }) => {
       setShirts(shirtPhotos);
       setPants(pantPhotos);
       setHats(hatPhotos);
+      setHoodies(hoodiePhotos);
   
     } catch (error) {
       console.error("Error loading images:", error);
@@ -218,9 +260,70 @@ const HomeScreen = ({ userEmail }) => {
     setModalVisible(false);
   };
 
+  const addToOutfit = async (selectedImage) => {
+    imagesToUse.push(selectedImage);
+    console.log(imagesToUse);
+    setModalVisible(false);
+  }
+  
+  const generateOutfit = async () => {
+    try {
+  
+      const formData = new FormData();
+      formData.append('baseFile', {
+        uri: imagesToUse[0],
+        type: 'image/jpg',
+        name: `base.jpg`,
+      });
+      formData.append('topFile', {
+        uri: imagesToUse[1],
+        type: 'image/jpg',
+        name: `top.jpg`,
+      });
+      formData.append('bottomFile', {
+        uri: imagesToUse[2],
+        type: 'image/jpg',
+        name: `bottom.jpg`,
+      });
+
+  
+      // Send a POST request to upload the images and generate the outfit
+      const response = await axios.post(`${API_URL}/generateOutfit`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data', // Set the appropriate content type
+        },
+      });
+  
+      if (response.status === 200) {
+        console.log("trying to update 1");
+        const newImage = response.data.image;
+      
+
+  console.log("trying to update 2");
+        const updatedImages = [...imagesToUse];
+        updatedImages[0] = newImage;  // Update the first image with the new outfit image
+        setImagesToUse(updatedImages);
+  
+        console.log("Updated imagesToUse[0] with outfit:");
+      } else {
+        console.warn("Server did not return a valid image");
+      }
+    } catch (error) {
+      console.error("Error generating outfit:", error);
+    }
+  };
+  
+
+  
+  const deletePhoto = async () => {
+
+    setImagesToUse([]);
+
+
+  }
+
   const [selectedCategoryy, setSelectedCategoryy] = useState("shirts");
 
-  // Mapping category to its corresponding state
   const categoryData = {
     shirts,
     jackets,
@@ -228,6 +331,7 @@ const HomeScreen = ({ userEmail }) => {
     shorts,
     skirts,
     hats,
+    hoodies,
   };
 
   const categories = Object.keys(categoryData);
@@ -236,15 +340,22 @@ const HomeScreen = ({ userEmail }) => {
   return (
     <ScrollView vertical>
       <View style={styles.container}>
-        {userImage ? (
-          <Image source={{ uri: userImage }} style={styles.profileImage} />
+        <Button title='Delete Photo' onPress={() => deletePhoto()} />
+        {imagesToUse[0] ? (
+          <Image source={{ uri: imagesToUse[0] }} style={styles.profileImage} />
         ) : (
           <View style={styles.promptContainer}>
             <Text style={styles.promptText}>Take a photo to get started!</Text>
-            <Button title="Take Photo" onPress={pickImage} />
+            <Button title="Take Photo" onPress={pickImageForBody} />
+            <Button
+  title="Upload from Gallery"
+  onPress={uploadImageForBody}
+/>
           </View>
         )}
+        <Image source={{ uri: 'data:image/jpeg;base64,' + imagesToUse[0] }} style={styles.profileImage1} />
 
+        <Button title="Generate outfit" onPress={() => generateOutfit()} />
         <Button title="Load images" onPress={() => loadImages()} />
         <Button title="Add item" onPress={() => pickImage()} />
 
@@ -326,6 +437,11 @@ const HomeScreen = ({ userEmail }) => {
     <View style={styles.modalContainer}>
       <Text style={styles.modalTitle}>Image Options</Text>
       
+      <Button
+        title="Use for outfit"
+        onPress={() => addToOutfit(selectedImage)}
+        />
+
       <Button 
         title="Delete Image" 
         onPress={() => deleteImage(selectedImage)} 
@@ -488,6 +604,12 @@ const styles = StyleSheet.create({
   },
   pickerItem: {
     color: "black"
+  },
+  profileImage1: {
+    width: '100%', // Adjust the width as per your design, 100% to take up the full width of the container
+    height: 300, // Set the height to control the aspect ratio of the image, or use flex
+    resizeMode: 'contain', // Ensures the image scales to fit while maintaining its aspect ratio
+    borderRadius: 10, // Optional: for rounded corners
   },
 });
 

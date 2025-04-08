@@ -21,7 +21,8 @@ const auth = getAuth(app);
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
 
-const MainApp = ({ userEmail }) => {
+const MainApp = ({ route }) => {
+  const { userEmail } = route.params || {};
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({

@@ -9,7 +9,16 @@ import boto3
 from botocore.exceptions import NoCredentialsError
 import uuid  
 import numpy as np
+import io
+from google import genai
+from google.genai import types
+from PIL import Image, ImageEnhance
+from io import BytesIO
 from rembg import remove
+import PIL.Image
+from flask import send_file
+import os
+import base64
 
 app = Flask(__name__)
 
@@ -403,6 +412,76 @@ def changeCategory():
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+    
+def removeBackground(base_image):
+  with io.BytesIO() as output:
+    base_image.save(output, format="PNG")
+    img_bytes = output.getvalue()
+    output_bytes = remove(img_bytes)
+    output_image = Image.open(io.BytesIO(output_bytes))
+    return output_image
+
+
+@app.route("/generateOutfit", methods=["POST"])
+def generateOutfit():
+
+
+    
+    baseFile = request.files["baseFile"]
+    topFile = request.files["topFile"]
+    bottomFile = request.files["bottomFile"]
+    print("base: ", baseFile, "\n top: ", topFile, "\n bottom: ", bottomFile)
+      
+    base_image = PIL.Image.open(baseFile)
+    imageToUse2 = removeBackground(base_image)
+    imageToUse2.save('jakeLow.png', quality=10)
+    imageToUse2 = PIL.Image.open('jakeLow.png') 
+    imageToUse2 = imageToUse2.resize((183, 275))
+    imageToUse2.info = {}
+    top = PIL.Image.open(topFile)
+    bottom = PIL.Image.open(bottomFile)
+
+    client = genai.Client(api_key="AIzaSyDG3tSZ_gxwdsuMxNeO5HIiEaVi03oX4nM")
+
+    text_input = (
+        "Create an ultra realistic photo of this digital character "
+        "show the full body of the character and put the hoodie on with the arms gently sloping along with their body and put the pants on and put the shoes on the characters feet"
+    )
+
+    response = client.models.generate_content(
+    model="gemini-2.0-flash-exp-image-generation",
+    contents=[text_input, imageToUse2, top, bottom],
+    config=types.GenerateContentConfig(
+        response_modalities=['Text', 'Image']
+        )
+    )
+    
+    if response.candidates and response.candidates[0].content:
+        for part in response.candidates[0].content.parts:
+            if hasattr(part, 'text') and part.text is not None:
+                print(part.text)
+            elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                result_image = Image.open(BytesIO(part.inline_data.data))
+                imageToShow = removeBackground(result_image)
+                    
+                img_io = BytesIO()
+                imageToShow.save(img_io, 'PNG')
+                base_64Image = base64.b64encode(img_io.getvalue()).decode('utf-8')
+                img_io.seek(0)
+
+                print("SENT THE IMAGE TO THE JS", imageToShow)
+
+                # Return as a JSON response with the base64 image data
+                return jsonify({"image": base_64Image})
+    else:
+        print("No content returned. Likely a safety block or model rejection.")
+
+
+
+
+    # For example, return a dummy URL (you can replace this with actual image processing logic)
+    return jsonify({"imageUrl": "https://example.com/generated_outfit.jpg"}), 200
+
 
 
 if __name__ == "__main__":
