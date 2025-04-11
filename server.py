@@ -434,7 +434,7 @@ def generateOutfit():
       
     base_image = PIL.Image.open(baseFile)
     imageToUse2 = removeBackground(base_image)
-    imageToUse2.save('jakeLow.png', quality=10)
+    imageToUse2.save('jakeLow.png', quality=9)
     imageToUse2 = PIL.Image.open('jakeLow.png') 
     imageToUse2 = imageToUse2.resize((183, 275))
     imageToUse2.info = {}
@@ -455,33 +455,29 @@ def generateOutfit():
         response_modalities=['Text', 'Image']
         )
     )
-    
-    if response.candidates and response.candidates[0].content:
-        for part in response.candidates[0].content.parts:
-            if hasattr(part, 'text') and part.text is not None:
-                print(part.text)
-            elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                result_image = Image.open(BytesIO(part.inline_data.data))
-                imageToShow = removeBackground(result_image)
-                    
-                img_io = BytesIO()
-                imageToShow.save(img_io, 'PNG')
-                base_64Image = base64.b64encode(img_io.getvalue()).decode('utf-8')
-                img_io.seek(0)
+    try:
+        if response.candidates and response.candidates[0].content:
+            for part in response.candidates[0].content.parts:
+                if hasattr(part, 'text') and part.text is not None:
+                    print(part.text)
+                elif hasattr(part, 'inline_data') and part.inline_data is not None:
+                    result_image = Image.open(BytesIO(part.inline_data.data))
+                    imageToShow = removeBackground(result_image)
+                        
+                    img_io = BytesIO()
+                    imageToShow.save(img_io, 'PNG')
+                    base_64Image = base64.b64encode(img_io.getvalue()).decode('utf-8')
+                    img_io.seek(0)
 
-                print("SENT THE IMAGE TO THE JS", imageToShow)
+                    print("SENT THE IMAGE TO THE JS", imageToShow)
 
-                # Return as a JSON response with the base64 image data
-                return jsonify({"image": base_64Image})
-    else:
-        print("No content returned. Likely a safety block or model rejection.")
-
-
-
-
-    # For example, return a dummy URL (you can replace this with actual image processing logic)
-    return jsonify({"imageUrl": "https://example.com/generated_outfit.jpg"}), 200
-
+                    # Return as a JSON response with the base64 image data
+                    return jsonify({"image": base_64Image})
+        else:
+            print("No content returned. Likely a safety block or model rejection.")
+            return jsonify({"message": "Model was too human like so could not generate"})
+    except:
+        return jsonify({"message": 5})
 
 
 if __name__ == "__main__":

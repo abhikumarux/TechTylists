@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, Image, ScrollView, StyleSheet, TouchableOpacity, Modal, TouchableHighlight } from 'react-native';
+import { View, Text, Button, Image, ScrollView, StyleSheet, TouchableOpacity, Modal, TouchableHighlight, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { getAuth } from 'firebase/auth';
 import { doc, setDoc, getDoc, deleteDoc } from 'firebase/firestore'; 
 import { getFirestore } from 'firebase/firestore';
 import axios from 'axios';
 import ModalDropdown from 'react-native-modal-dropdown';
+import { ActivityIndicator } from 'react-native';
+
 
 
 const API_URL = 'http://18.225.195.136:5000'; 
@@ -28,13 +30,20 @@ const HomeScreen = ({ userEmail }) => {
   const [selectedCategory, setSelectedCategory] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [imagesToUse, setImagesToUse] = useState([]);
-
+  const [generatedPhoto, setGeneratedPhoto] = useState([]);
+  const [loadingVar, setLoadingVar] = useState(false);
+  const [uploadImageModalSpinner, setUploadImageModalSpinner] = useState(false);
+  const [uploadImageModalVisibleActualModal, setUploadImageModalVisibleActualModal] = useState(false);
+  const [textToDisplayIfItemsGetsUploaded, setTextToDisplayIfItemGetsUploaded] = useState('');
 
   useEffect(() => {
     if (user) {
       fetchUserImage();
     }
   }, [user]);
+
+  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
 
   const fetchUserImage = async () => {
     if (!user) return;
@@ -58,6 +67,7 @@ const HomeScreen = ({ userEmail }) => {
     });
 
     if (!result.canceled) {
+      setUploadImageModalVisibleActualModal(true);
         uploadPhoto(result.assets[0].uri);
     }
   };
@@ -105,6 +115,7 @@ const HomeScreen = ({ userEmail }) => {
       return;
     }
     try {
+      setUploadImageModalSpinner(true);
       const userData = await fetchUserData(userEmail);
       if (!userData) {
         throw new Error('User data not found');
@@ -124,11 +135,18 @@ const HomeScreen = ({ userEmail }) => {
       });
   
       console.log('Photo uploaded:', response.data);
+      setUploadImageModalSpinner(false);
+      setTextToDisplayIfItemGetsUploaded('Uploaded photo with category of ' + response.data.category);
       setUploadedPhotoPath(response.data.image_uploaded_to);
-      alert('Uploaded photo with category of ' + response.data.category);
+      await sleep(3000);
+      
     } catch (error) {
       console.error('Error uploading photo:', error);
       alert('Failed to upload photo');
+      setUploadImageModalSpinner(false);
+      setTextToDisplayIfItemGetsUploaded("Failed to upload the photo, please try again")
+      await sleep(3000);
+      uploadImageModalVisibleActualModal(false);
     }
     loadImages();
   };
@@ -286,30 +304,36 @@ const HomeScreen = ({ userEmail }) => {
         name: `bottom.jpg`,
       });
 
-  
-      // Send a POST request to upload the images and generate the outfit
+      setLoadingVar(true);
       const response = await axios.post(`${API_URL}/generateOutfit`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data', // Set the appropriate content type
+          'Content-Type': 'multipart/form-data',
         },
       });
   
       if (response.status === 200) {
-        console.log("trying to update 1");
         const newImage = response.data.image;
-      
-
-  console.log("trying to update 2");
         const updatedImages = [...imagesToUse];
-        updatedImages[0] = newImage;  // Update the first image with the new outfit image
-        setImagesToUse(updatedImages);
+        updatedImages[0] = newImage;
+        setGeneratedPhoto(updatedImages);
+        setLoadingVar(false);
   
         console.log("Updated imagesToUse[0] with outfit:");
       } else {
-        console.warn("Server did not return a valid image");
-      }
+        if(response.message == "Model was too human like so could not generate")
+          setLoadingVar(false);
+     {
+      alert("Model was too human like so could not generate");
+     }
+     if(response.message == 5) {
+      alert("Too much traffic on google ai server, please try again a few times");
+      setLoadingVar(false);
+     }
+        }
     } catch (error) {
-      console.error("Error generating outfit:", error);
+      // console.error("Error generating outfit:", error);
+      alert("Too much traffic on google ai server, please try again a few times");
+      setLoadingVar(false);
     }
   };
   
@@ -318,6 +342,9 @@ const HomeScreen = ({ userEmail }) => {
   const deletePhoto = async () => {
 
     setImagesToUse([]);
+    setUploadedPhotoPath('');
+    setGeneratedPhoto([]);
+
 
 
   }
@@ -347,13 +374,15 @@ const HomeScreen = ({ userEmail }) => {
           <View style={styles.promptContainer}>
             <Text style={styles.promptText}>Take a photo to get started!</Text>
             <Button title="Take Photo" onPress={pickImageForBody} />
-            <Button
-  title="Upload from Gallery"
-  onPress={uploadImageForBody}
-/>
+            <Button title="Upload from Gallery" onPress={uploadImageForBody} />
           </View>
         )}
-        <Image source={{ uri: 'data:image/jpeg;base64,' + imagesToUse[0] }} style={styles.profileImage1} />
+       {loadingVar ? (
+        <ActivityIndicator size="large" color="#0000ff" />
+        ) : generatedPhoto[0] ? (
+  <Image source={{ uri: 'data:image/jpeg;base64,' + generatedPhoto[0] }} style={styles.profileImage1} />
+        ) : null}
+
 
         <Button title="Generate outfit" onPress={() => generateOutfit()} />
         <Button title="Load images" onPress={() => loadImages()} />
@@ -389,44 +418,29 @@ const HomeScreen = ({ userEmail }) => {
         )}
       </ScrollView>
     </View>
-
-
-        {/* <View style={styles.clothingCategory}>
-          <Text style={styles.categoryTitle}>Shirts</Text>
-          <ScrollView horizontal>
-            {shirts.map((shirt, index) => (
-              <TouchableOpacity key={index} onPress={() => handleImageClick(shirt)}>
-                <Image key={shirt.uri || index} source={{ uri: shirt }} style={styles.itemImage} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <Button title="Add Shirt" onPress={() => pickImage("shirt")} />
+    
+        <Modal animationType='slide' transparent={true} visible={uploadImageModalVisibleActualModal} onRequestClose={() => setUploadImageModalVisibleActualModal(false)}>
+        <View style={styles.modalBackground}>
+        <View style={styles.modalContainer}>
+        {uploadImageModalSpinner ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text>Uploading Image </Text>
+          <ActivityIndicator size="large" color="#0000ff" />
+        </View>       ) : (
+          <View>
+           <Text>{textToDisplayIfItemsGetsUploaded}</Text> 
+           <TouchableOpacity 
+        style={styles.closeButton}
+        onPress={() => setUploadImageModalVisibleActualModal(false)}
+      >
+        <Text style={styles.closeButtonText}>Close</Text>
+      </TouchableOpacity>
+           </View>
+        )}
+        </View>
         </View>
 
-        <View style={styles.clothingCategory}>
-          <Text style={styles.categoryTitle}>Pants</Text>
-          <ScrollView horizontal>
-            {pants.map((pant, index) => (
-              <TouchableOpacity key={index} onPress={() => handleImageClick(pant)}>
-                 <Image key={pant.uri || index} source={{ uri: pant }} style={styles.itemImage} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          <Button title="Add Pant" onPress={() => pickImage("pant")} />
-        </View>
-
-        <View style={styles.clothingCategory}>
-          <Text style={styles.categoryTitle}>Hats</Text>
-          <ScrollView horizontal>
-            {hats.map((hat, index) => (
-              <TouchableOpacity key={index} onPress={() => handleImageClick(hat)}>
-                <Image key={hat.uri || index} source={{ uri: hat }} style={styles.itemImage} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          
-        </View> */}
-
+        </Modal> 
         <Modal
   animationType="slide"
   transparent={true}
