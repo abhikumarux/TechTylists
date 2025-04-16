@@ -5,6 +5,7 @@ import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, doc, getDoc, setDoc, query, where, getDocs } from 'firebase/firestore'; 
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import { FeTile } from 'react-native-svg';
 
 const auth = getAuth(app);
 const db = getFirestore(app);
@@ -21,6 +22,11 @@ const UserScreen = ({ userEmail }) => {
   const [selectedTab, setSelectedTab] = useState('explore');
   const [myProfilePosts, setMyProfilePosts] = useState([]);
   const [myProfilePostsCaptions, setMyProfilePostsCaptions] = useState([]);
+  const [allOutfits, setAllOutfits] = useState([]);
+  const [outfits, setOutfits] = useState([]);
+  const [expandedUsers, setExpandedUsers] = useState({});
+
+  
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -30,24 +36,27 @@ const UserScreen = ({ userEmail }) => {
           setCurrentUsername(username);
           fetchFriends(username);
           fetchFriendRequests(username);
+          
         }
       }
     });
     return unsubscribe;
   }, []);
 
-  useEffect(() => {
-    if (selectedTab === 'profile') {
-      fetchAllPosts();
-    }
-  }, [selectedTab]);
 
   const fetchFriends = async (username) => {
     const friendsRef = collection(db, "users", username, "friendships");
     const q = query(friendsRef, where("status", "==", "accepted"));
     const snapshot = await getDocs(q);
-    setFriends(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    const friendList = snapshot.docs
+      .map(doc => ({ id: doc.id, ...doc.data() }))
+      .filter(friend => friend.id !== username);
+    console.log("ADSOPIFJASOIDJ: ", friendList);
+    setFriends(friendList);
+    return friendList;
   };
+  
+  
 
 
   const fetchFriendRequests = async (username) => {
@@ -206,7 +215,6 @@ const UserScreen = ({ userEmail }) => {
          await setDoc(newPostRef, {caption: postCaption});
          setPostImage(null); 
          setPostCaption(''); 
-         fetchAllPosts();
        } else {
          Alert.alert("Error", "Something went wrong while creating your post.");
        }
@@ -283,6 +291,51 @@ const UserScreen = ({ userEmail }) => {
 
   }
 
+  const fetchOutfits = async () => {
+    setFriends([]);
+    setOutfits([]);
+    const fetchedFriends = await fetchFriends(userEmail);
+    console.log('RETURNED: ', fetchedFriends); // await it and get the result
+
+    const friendEmails = fetchedFriends
+      .filter(friend => friend.id !== userEmail) // optional safety
+      .map(friend => friend.id);
+  
+    const allEmails = [...friendEmails];
+    const allOutfits = [];
+    console.log("trying: ", allEmails);
+    for (const email of allEmails) {
+      try {
+        const userData = await fetchUserData(email);
+  
+        if (!userData) {
+          console.error(`User data not found for: ${email.id}`);
+          continue;
+        }
+  
+        const awsPhotoKey = userData.awsPhotoKey;
+        console.log(`Fetching outfits for ${email} (AWS key: ${awsPhotoKey})`);
+  
+        const response = await axios.get(`${API_URL}/getOutfits`, {
+          params: { user_id: awsPhotoKey },
+        });
+  
+        const outfitsForThisUser = response.data.outfits.map((outfit) => ({
+          ...outfit,
+          userEmail: email, 
+        }));
+  
+        allOutfits.push(...outfitsForThisUser);
+  
+      } catch (err) {
+        console.error(`Failed to fetch outfits for ${email}:`, err);
+      }
+    }
+  
+    setOutfits(allOutfits);
+  };
+  
+
 
 
   return (
@@ -294,11 +347,59 @@ const UserScreen = ({ userEmail }) => {
       </View>
 
       {selectedTab === 'explore' && (
-        <View>
-          <Text style={styles.header}>Explore</Text>
-          <Text>No content yet.</Text>
-        </View>
+
+  <View>
+    <Button title='Load Friends Images' onPress={fetchOutfits}/>
+    <Text style={styles.header}>Explore</Text>
+    <ScrollView contentContainerStyle={{ paddingBottom: 100 }}>
+      {outfits.length === 0 ? (
+        <Text>No outfits to explore yet.</Text>
+      ) : (
+        outfits.map((outfit, index) => (
+          <View key={index} style={{ marginBottom: 32,
+            padding: 16,           
+            backgroundColor: '#fff', 
+            borderRadius: 12,
+            shadowColor: '#000',    
+            shadowOffset: { width: 0, height: 2 },
+            shadowOpacity: 0.1,
+            shadowRadius: 4,
+            elevation: 3,    }}>
+            <Text style={{ fontWeight: 'bold', marginBottom: 8 }}>{outfit.userEmail}'s Outfit</Text>
+            <Image
+              source={{ uri: outfit.full }}
+              style={{
+               
+                  width: '100%',
+                  height: undefined,
+                  aspectRatio: 1, 
+                  borderRadius: 12,
+                  resizeMode: 'contain',
+                  marginBottom: 8,
+              
+              }}
+            />
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {outfit.items.map((itemUrl, i) => (
+                <Image
+                  key={i}
+                  source={{ uri: itemUrl }}
+                  style={{
+                    width: 100,
+                    height: 100,
+                    borderRadius: 8,
+                    marginRight: 8,
+                  }}
+                />
+              ))}
+            </ScrollView>
+          </View>
+        ))
       )}
+    </ScrollView>
+  </View>
+)}
+
 
       {selectedTab === 'friends' && (
         <View>

@@ -8,6 +8,7 @@ import axios from 'axios';
 import ModalDropdown from 'react-native-modal-dropdown';
 import { ActivityIndicator } from 'react-native';
 
+//nohup python server4.py &
 
 
 const API_URL = 'http://18.225.195.136:5000'; 
@@ -35,6 +36,8 @@ const HomeScreen = ({ userEmail }) => {
   const [uploadImageModalSpinner, setUploadImageModalSpinner] = useState(false);
   const [uploadImageModalVisibleActualModal, setUploadImageModalVisibleActualModal] = useState(false);
   const [textToDisplayIfItemsGetsUploaded, setTextToDisplayIfItemGetsUploaded] = useState('');
+  const [saveOut, setSaveOut] = useState(false);
+  const [outfitsSaved, setOutfitsSaved] = useState([]);
 
   useEffect(() => {
     if (user) {
@@ -129,7 +132,7 @@ const HomeScreen = ({ userEmail }) => {
         name: `photo_${Date.now()}.jpg`,
       });
       formData.append('user_id', String(awsPhotoKey));
-  
+      console.log("sendinggggg");
       const response = await axios.post(`${API_URL}/uploadImage`, formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
@@ -286,56 +289,56 @@ const HomeScreen = ({ userEmail }) => {
   
   const generateOutfit = async () => {
     try {
-  
       const formData = new FormData();
-      formData.append('baseFile', {
+      formData.append("baseFile", {
         uri: imagesToUse[0],
-        type: 'image/jpg',
-        name: `base.jpg`,
+        type: "image/jpg",
+        name: "base.jpg",
       });
-      formData.append('topFile', {
+      formData.append("topFile", {
         uri: imagesToUse[1],
-        type: 'image/jpg',
-        name: `top.jpg`,
+        type: "image/jpg",
+        name: "top.jpg",
       });
-      formData.append('bottomFile', {
+      formData.append("bottomFile", {
         uri: imagesToUse[2],
-        type: 'image/jpg',
-        name: `bottom.jpg`,
+        type: "image/jpg",
+        name: "bottom.jpg",
       });
-
+  
       setLoadingVar(true);
+  
       const response = await axios.post(`${API_URL}/generateOutfit`, formData, {
         headers: {
-          'Content-Type': 'multipart/form-data',
+          "Content-Type": "multipart/form-data",
         },
       });
   
-      if (response.status === 200) {
-        const newImage = response.data.image;
-        const updatedImages = [...imagesToUse];
-        updatedImages[0] = newImage;
-        setGeneratedPhoto(updatedImages);
-        setLoadingVar(false);
+      const { status, data } = response;
   
-        console.log("Updated imagesToUse[0] with outfit:");
+      if (status === 200 && data.image) {
+        const updatedImages = [...imagesToUse];
+        updatedImages[0] = data.image;
+        setGeneratedPhoto(updatedImages);
+        outfitsSaved.push(updatedImages[0]);
+        console.log("Outfit generated successfully");
+      } else if (data?.message === "Model was too human like so could not generate") {
+        alert("Model rejected the image: too human-like. Try a different pose or image.");
+      } else if (data?.message === "Too many people are using the server or the model rejected the input.") {
+        alert("Model is currently overloaded. Try again in a few moments.");
+      } else if (data?.message === "Error processing generated image.") {
+        alert("An error occurred while processing the generated image.");
       } else {
-        if(response.message == "Model was too human like so could not generate")
-          setLoadingVar(false);
-     {
-      alert("Model was too human like so could not generate");
-     }
-     if(response.message == 5) {
-      alert("Too much traffic on google ai server, please try again a few times");
-      setLoadingVar(false);
-     }
-        }
+        alert("Unexpected error occurred. Please try again.");
+      }
     } catch (error) {
-      // console.error("Error generating outfit:", error);
-      alert("Too much traffic on google ai server, please try again a few times");
+      console.error("Error generating outfit:", error);
+      alert("Server error or high traffic. Please try again later.");
+    } finally {
       setLoadingVar(false);
     }
   };
+  
   
 
   
@@ -363,6 +366,88 @@ const HomeScreen = ({ userEmail }) => {
 
   const categories = Object.keys(categoryData);
 
+  const saveToOutfits = async () => {
+    try {
+      const outfitToSave = generatedPhoto[0];
+    
+      const newArr = [...outfitsSaved, outfitToSave];
+      setOutfitsSaved(newArr);
+  
+      // Save the outfit
+      const fullOutfit = generatedPhoto[0];
+      const individualItems = imagesToUse;
+  
+      const formData = new FormData();
+  
+      console.log("Fetching user data for:", userEmail);
+      const userData = await fetchUserData(userEmail);
+    
+      if (!userData) {
+        console.error('User data not found after fetchUserData');
+        throw new Error('User data not found');
+      }
+    
+      console.log("Fetched user data:", userData);
+  
+      const postNumberToUse = (userData.postNumber || 0) + 1;
+      const awsPhotoKey = userData.awsPhotoKey;
+      console.log("Calculated post number to use:", postNumberToUse);
+  
+      const userRef = doc(db, "users", userEmail);
+      console.log("User reference created:", userRef.path);
+  
+      // Update postNumber using setDoc with merge
+      await setDoc(userRef, { postNumber: postNumberToUse }, { merge: true });
+  
+      console.log("Successfully updated post number in Firestore.");
+  
+      const toFile = (base64, name) => ({
+        uri: `data:image/jpeg;base64,${base64}`,
+        type: 'image/jpeg',
+        name,
+      });
+  
+      formData.append('fullOutfit', toFile(generatedPhoto[0], 'full.jpg'));
+  
+      const fetchLocalImageAsBlob = async (fileUri) => {
+        const response = await fetch(fileUri);
+        const blob = await response.blob();
+        return blob;
+      };
+
+      console.log("Sending out these: ", imagesToUse);
+      imagesToUse.forEach((itemUri, index) => {
+        formData.append('individuals', {
+          uri: itemUri,
+          name: `item_${index}.jpg`,
+          type: 'image/jpeg',
+        });
+      });
+      
+      
+  
+      formData.append('user_id', String(awsPhotoKey));
+      formData.append('outfit_Id', postNumberToUse);
+  
+      await axios.post(`${API_URL}/uploadOutfit`, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+  
+      console.log("Outfit uploaded successfully with post number:", postNumberToUse);
+    } catch (error) {
+      console.error("Error in saveToOutfits:", error);
+    }
+    deletePhoto();
+  };
+  
+    
+
+    
+
+  
+  
 
   return (
     <ScrollView vertical>
@@ -380,13 +465,21 @@ const HomeScreen = ({ userEmail }) => {
        {loadingVar ? (
         <ActivityIndicator size="large" color="#0000ff" />
         ) : generatedPhoto[0] ? (
-  <Image source={{ uri: 'data:image/jpeg;base64,' + generatedPhoto[0] }} style={styles.profileImage1} />
+          <View style={styles.generatedContainer}>
+          <Image
+            source={{ uri: 'data:image/jpeg;base64,' + generatedPhoto[0] }}
+            style={styles.profileImage1}
+          />
+          <Button title="Save Outfit" onPress={saveToOutfits} />
+        </View>
         ) : null}
 
 
         <Button title="Generate outfit" onPress={() => generateOutfit()} />
         <Button title="Load images" onPress={() => loadImages()} />
         <Button title="Add item" onPress={() => pickImage()} />
+
+        
 
         <View style={styles.container}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}>
@@ -404,6 +497,8 @@ const HomeScreen = ({ userEmail }) => {
             <Text style={{ color: "white" }}>{category.toUpperCase()}</Text>
           </TouchableOpacity>
         ))}
+
+        
       </ScrollView>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginTop: 20 }}>
@@ -417,6 +512,19 @@ const HomeScreen = ({ userEmail }) => {
           <Text>No items in {selectedCategoryy}</Text>
         )}
       </ScrollView>
+      <Text style={styles.title}>Saved Outfits</Text>
+
+      <View style={styles.outfitsContainer}>
+  {outfitsSaved.map((outfit, index) => (
+    <Image
+      key={index}
+      source={{ uri: 'data:image/jpeg;base64,' + outfit }}
+      style={styles.profileImage1}
+    />
+  ))}
+</View>
+
+      
     </View>
     
         <Modal animationType='slide' transparent={true} visible={uploadImageModalVisibleActualModal} onRequestClose={() => setUploadImageModalVisibleActualModal(false)}>
@@ -620,10 +728,22 @@ const styles = StyleSheet.create({
     color: "black"
   },
   profileImage1: {
-    width: '100%', // Adjust the width as per your design, 100% to take up the full width of the container
-    height: 300, // Set the height to control the aspect ratio of the image, or use flex
-    resizeMode: 'contain', // Ensures the image scales to fit while maintaining its aspect ratio
-    borderRadius: 10, // Optional: for rounded corners
+    width: '100%',
+    height: 300, 
+    resizeMode: 'contain',
+    borderRadius: 10, 
+  },
+  generatedContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 20,
+  },
+  profileImage1: {
+    width: 200,
+    height: 300,
+    resizeMode: 'contain',
+    marginBottom: 10,
+    borderRadius: 10,
   },
 });
 

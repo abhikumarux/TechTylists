@@ -43,7 +43,7 @@ const MainApp = ({ route }) => {
         name="Home"
         children={() => <HomeScreen userEmail={userEmail} />}
       />
-      <Tab.Screen name="Photo" component={UploadScreen} />
+      <Tab.Screen name="Photo" children={() => <UploadScreen userEmail={userEmail} />} />
       <Tab.Screen name="Profile" component={ProfileScreen} />
       <Tab.Screen
         name="User Screen"

@@ -58,7 +58,7 @@ def upload_image_to_s3(image, user_id, filename, category):
     try:
        
         img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG')
+        image.save(img_byte_arr, format='PNG')
         img_byte_arr.seek(0)
 
 
@@ -180,7 +180,8 @@ def uploadImage():
             category = predictCategory2(image)
         except Exception as e:
             return jsonify({"error": f"Error processing image: {str(e)}"}), 400
-        image2 = image
+        noBackImage = remove(image)
+        image2 = noBackImage
         pil_image = image2
 
        
@@ -422,62 +423,178 @@ def removeBackground(base_image):
     return output_image
 
 
+def removeBackground(image):
+    with BytesIO() as output:
+        image.save(output, format="PNG")
+        img_bytes = output.getvalue()
+        output_bytes = remove(img_bytes)
+        output_image = Image.open(BytesIO(output_bytes))
+        return output_image
+
+@app.route("/generateOutfit", methods=["POST"])
 @app.route("/generateOutfit", methods=["POST"])
 def generateOutfit():
+    try:
+        baseFile = request.files["baseFile"]
+        topFile = request.files["topFile"]
+        bottomFile = request.files["bottomFile"]
+        print("Received files: base, top, bottom")
 
+        base_image = Image.open(baseFile)
+        base_image = removeBackground(base_image)
+        base_image = base_image.resize((183, 275))
+        base_image.info = {}
+
+
+        top = Image.open(topFile)
+        bottom = Image.open(bottomFile)
+
+
+        client = genai.Client(api_key="AIzaSyDG3tSZ_gxwdsuMxNeO5HIiEaVi03oX4nM")
+
+        text_input = (
+            "Create an ultra realistic photo of this digital character. "
+            "Show the full body of the character and put the hoodie on with the arms gently sloping along with their body, "
+            "and put the pants on and put the shoes on the character's feet."
+        )
+
+        max_retries = 7
+        for attempt in range(max_retries):
+            print(f"Generating content (attempt {attempt + 1})...")
+            response = client.models.generate_content(
+                model="gemini-2.0-flash-exp-image-generation",
+                contents=[text_input, base_image, top, bottom],
+                config=types.GenerateContentConfig(
+                    response_modalities=["Text", "Image"]
+                )
+            )
+
+            if response.candidates and response.candidates[0].content:
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, "text") and part.text:
+                        print("Model response (text):", part.text)
+                    elif hasattr(part, "inline_data") and part.inline_data:
+                        try:
+                            result_image = Image.open(BytesIO(part.inline_data.data))
+                            final_image = removeBackground(result_image)
+
+                            img_io = BytesIO()
+                            final_image.save(img_io, "PNG")
+                            base64_image = base64.b64encode(img_io.getvalue()).decode("utf-8")
+                            img_io.seek(0)
+
+                            print("Successfully generated image.")
+                            return jsonify({"image": base64_image})
+                        except Exception as img_err:
+                            print("Error processing returned image:", img_err)
+                            return jsonify({"message": "Error processing generated image."}), 500
+
+            print("No valid content returned. Retrying...")
+
+        print("Max retries reached. Model likely overloaded or input rejected.")
+        return jsonify({"message": "Too many people are using the server or the model rejected the input."}), 503
+
+    except Exception as e:
+        print("Error in /generateOutfit:", e)
+        return jsonify({"message": f"Internal server error: {str(e)}"}), 500
+    
+
+
+
+@app.route("/uploadOutfit", methods=["POST"])
+def upload_outfit():
+    try:
+        user_id = request.form["user_id"]
+        outfit_id = request.form["outfit_Id"]
+
+        print("user id:", user_id)
+        print("outfit id:", outfit_id)
+
+        object_prefix = f"{user_id}/outfits/{outfit_id}"
+        print("S3 path prefix:", object_prefix)
+
+        full_outfit = request.files["fullOutfit"]
+        s3.upload_fileobj(
+            full_outfit,
+            bucket_name,
+            f"{object_prefix}/full.jpg",
+            ExtraArgs={"ContentType": "image/jpeg"}
+        )
+        print("Uploaded full outfit.")
 
     
-    baseFile = request.files["baseFile"]
-    topFile = request.files["topFile"]
-    bottomFile = request.files["bottomFile"]
-    print("base: ", baseFile, "\n top: ", topFile, "\n bottom: ", bottomFile)
-      
-    base_image = PIL.Image.open(baseFile)
-    imageToUse2 = removeBackground(base_image)
-    imageToUse2.save('jakeLow.png', quality=9)
-    imageToUse2 = PIL.Image.open('jakeLow.png') 
-    imageToUse2 = imageToUse2.resize((183, 275))
-    imageToUse2.info = {}
-    top = PIL.Image.open(topFile)
-    bottom = PIL.Image.open(bottomFile)
+        if "individuals" in request.files:
+            print("Individuals field found in request.")
+            individual_files = request.files.getlist("individuals")
+            print("Number of individual items:", len(individual_files))
+            print("LIST OF ITEMS: ", individual_files)
+            for idx, item in enumerate(individual_files):
+                
+                s3.upload_fileobj(
+                    item,
+                    bucket_name,
+                    f"{object_prefix}/item_{idx}.jpg",
+                    ExtraArgs={"ContentType": "image/jpeg"}
+                )
+            print("Uploaded all individual items.")
 
-    client = genai.Client(api_key="AIzaSyDG3tSZ_gxwdsuMxNeO5HIiEaVi03oX4nM")
+        return jsonify({"message": "Upload successful!"}), 200
 
-    text_input = (
-        "Create an ultra realistic photo of this digital character "
-        "show the full body of the character and put the hoodie on with the arms gently sloping along with their body and put the pants on and put the shoes on the characters feet"
-    )
+    except Exception as e:
+        print("Upload error:", str(e))
+        return jsonify({"error": str(e)}), 500
 
-    response = client.models.generate_content(
-    model="gemini-2.0-flash-exp-image-generation",
-    contents=[text_input, imageToUse2, top, bottom],
-    config=types.GenerateContentConfig(
-        response_modalities=['Text', 'Image']
-        )
-    )
+
+
+@app.route("/getOutfits", methods=["GET"])
+def get_outfits():
     try:
-        if response.candidates and response.candidates[0].content:
-            for part in response.candidates[0].content.parts:
-                if hasattr(part, 'text') and part.text is not None:
-                    print(part.text)
-                elif hasattr(part, 'inline_data') and part.inline_data is not None:
-                    result_image = Image.open(BytesIO(part.inline_data.data))
-                    imageToShow = removeBackground(result_image)
-                        
-                    img_io = BytesIO()
-                    imageToShow.save(img_io, 'PNG')
-                    base_64Image = base64.b64encode(img_io.getvalue()).decode('utf-8')
-                    img_io.seek(0)
+        user_id = request.args.get("user_id")
+        if not user_id:
+            return jsonify({"error": "Missing user_id"}), 400
 
-                    print("SENT THE IMAGE TO THE JS", imageToShow)
+        prefix = f"{user_id}/outfits/"
+        response = s3.list_objects_v2(Bucket=bucket_name, Prefix=prefix)
+        print("S3 Response:", response)
 
-                    # Return as a JSON response with the base64 image data
-                    return jsonify({"image": base_64Image})
-        else:
-            print("No content returned. Likely a safety block or model rejection.")
-            return jsonify({"message": "Model was too human like so could not generate"})
-    except:
-        return jsonify({"message": 5})
+        if "Contents" not in response:
+            return jsonify({"outfits": []})
+
+        outfit_map = {}
+        for obj in response["Contents"]:
+            key = obj["Key"]
+            parts = key.split("/")
+            if len(parts) < 4:
+                continue 
+
+            _, _, outfit_id, filename = parts
+            if outfit_id not in outfit_map:
+                outfit_map[outfit_id] = {
+                    "outfit_id": outfit_id,
+                    "full": None,
+                    "items": []
+                }
+
+            if filename == "full.jpg":
+                outfit_map[outfit_id]["full"] = s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": bucket_name, "Key": key},
+                    ExpiresIn=3600
+                )
+            elif filename.startswith("item_") and filename.endswith(".jpg"):
+                url = s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": bucket_name, "Key": key},
+                    ExpiresIn=3600
+                )
+                outfit_map[outfit_id]["items"].append(url)
+
+        return jsonify({"outfits": list(outfit_map.values())})
+
+    except Exception as e:
+        print("Error in get_outfits:", e)
+        return jsonify({"error": str(e)}), 500
+
 
 
 if __name__ == "__main__":
