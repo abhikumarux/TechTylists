@@ -1,3 +1,4 @@
+// Login.js (adds shouldLogoutOnExit logic)
 import React, { useState } from "react";
 import {
   View,
@@ -6,12 +7,14 @@ import {
   TextInput,
   Text,
   useColorScheme,
+  Switch,
 } from "react-native";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
-import MaterialCommunityIcons from "react-native-vector-icons/MaterialCommunityIcons";
+import { signInWithEmailAndPassword } from "firebase/auth";
 import FontAwesome from "react-native-vector-icons/FontAwesome";
 import Ionicons from "react-native-vector-icons/Ionicons";
 import createStyles from "./styles";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { auth } from "../FireBaseConfig";
 
 const Login = ({ navigation }) => {
   const [email, setEmail] = useState("");
@@ -23,8 +26,14 @@ const Login = ({ navigation }) => {
 
   const handleLogin = async () => {
     try {
-      const auth = getAuth();
       await signInWithEmailAndPassword(auth, email, password);
+      if (rememberMe) {
+        await AsyncStorage.setItem("rememberMe", "true");
+        await AsyncStorage.removeItem("shouldLogoutOnExit");
+      } else {
+        await AsyncStorage.setItem("shouldLogoutOnExit", "true");
+        await AsyncStorage.removeItem("rememberMe");
+      }
     } catch (error) {
       setErrorMessage(error.message);
     }
@@ -61,15 +70,26 @@ const Login = ({ navigation }) => {
         autoCapitalize="none"
       />
 
-      {/* Remember Me & Forgot Password Row */}
       <View style={styles.rememberMeContainer}>
-        <TouchableOpacity onPress={() => setRememberMe(!rememberMe)}>
-          <MaterialCommunityIcons
-            name={rememberMe ? "checkbox-marked" : "checkbox-blank-outline"}
-            size={24}
-            color={rememberMe ? styles.rememberedColor : styles.rememberColor}
-          />
-        </TouchableOpacity>
+        <Switch
+          value={rememberMe}
+          onValueChange={(val) => setRememberMe(val)}
+          trackColor={{
+            false: colorScheme === "dark" ? "#555" : "#ccc",
+            true: colorScheme === "dark" ? "#D1EF53" : "#CB3033",
+          }}
+          thumbColor={
+            rememberMe
+              ? colorScheme === "dark"
+                ? "#222"
+                : "#fff"
+              : colorScheme === "dark"
+              ? "#555"
+              : "#f4f3f4"
+          }
+          style={{ marginRight: 10 }}
+        />
+
         <Text style={styles.rememberMeText}>Remember me</Text>
         <TouchableOpacity onPress={() => navigation.navigate("ForgotPassword")}>
           <Text style={styles.forgotPassword}>Forgot Password?</Text>
@@ -80,13 +100,10 @@ const Login = ({ navigation }) => {
         <Text style={styles.logInButtonText}>Login</Text>
       </TouchableOpacity>
 
-      {/* Error Message */}
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
 
-      {/* OR Separator */}
       <Text style={styles.orText}>——— OR ———</Text>
 
-      {/* Social Login Buttons */}
       <TouchableOpacity style={styles.socialButtonGoogle}>
         <FontAwesome
           name="google"
@@ -105,7 +122,6 @@ const Login = ({ navigation }) => {
         <Text style={styles.socialButtonTextApple}>Sign in with Apple</Text>
       </TouchableOpacity>
 
-      {/* Sign Up Text */}
       <View style={styles.signUpContainer}>
         <Text style={styles.dontHaveAccountText}>Don't have an account? </Text>
         <Text

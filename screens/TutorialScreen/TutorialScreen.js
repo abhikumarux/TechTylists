@@ -1,3 +1,4 @@
+// TutorialScreen.js (final screen saves flag and goes to Home)
 import React, { useRef, useState } from "react";
 import {
   View,
@@ -8,8 +9,9 @@ import {
   useColorScheme,
 } from "react-native";
 import Swiper from "react-native-swiper";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import * as Animatable from "react-native-animatable";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const tutorialScreens = [
   {
@@ -46,6 +48,8 @@ const tutorialScreens = [
 
 const TutorialScreen = () => {
   const navigation = useNavigation();
+  const route = useRoute();
+  const { userEmail } = route.params || {};
   const swiperRef = useRef(null);
   const colorScheme = useColorScheme();
   const isDarkMode = colorScheme === "dark";
@@ -56,6 +60,11 @@ const TutorialScreen = () => {
     setCurrentIndex(index);
   };
 
+  const handleFinishTutorial = async () => {
+    await AsyncStorage.setItem("hasSeenTutorial", "true");
+    navigation.replace("Home", { userEmail });
+  };
+
   const handleContinue = () => {
     if (currentIndex < tutorialScreens.length - 1) {
       swiperRef.current.scrollBy(1, true);
@@ -63,12 +72,7 @@ const TutorialScreen = () => {
   };
 
   const handleSkip = () => {
-    if (currentIndex < tutorialScreens.length - 1) {
-      swiperRef.current.scrollBy(
-        tutorialScreens.length - currentIndex - 1,
-        true
-      );
-    }
+    swiperRef.current.scrollBy(tutorialScreens.length - currentIndex - 1, true);
   };
 
   return (
@@ -166,7 +170,7 @@ const TutorialScreen = () => {
         ) : (
           <TouchableOpacity
             style={[styles.navButtons, styles.continueLastButton]}
-            onPress={() => navigation.navigate("Home")}
+            onPress={handleFinishTutorial}
           >
             <Text style={styles.continueLastText}>Continue</Text>
           </TouchableOpacity>
