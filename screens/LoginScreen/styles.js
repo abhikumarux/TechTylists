@@ -75,7 +75,7 @@ const createStyles = (colorScheme) => {
       fontSize: 14,
       color: isDarkMode ? "#D1EF53" : "#CB3033",
       fontWeight: "700",
-      marginLeft: 130,
+      marginLeft: 95,
     },
     error: {
       color: "red",
